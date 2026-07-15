@@ -51,6 +51,48 @@ const formatTime = (seconds: number) => {
 }
 
 const bestKey = (stable: StableKey, count: number) => `horse-quiz-best-${stable}-${count}`
+const deckKey = (stable: StableKey) => `horse-quiz-deck-v2-${stable}`
+
+const displayRating = (rating: number | null) => rating === null ? '未評' : `評分 ${rating}`
+
+const drawWithoutRepeats = (stable: StableKey, horses: Horse[], count: number): Horse[] => {
+  if (horses.length < count) throw new Error(`${stable} question bank only has ${horses.length} portraits`)
+  const byCode = new Map(horses.map((horse) => [horse.code, horse]))
+  const validCodes = new Set(byCode.keys())
+  let deck: string[] = []
+
+  try {
+    const stored = JSON.parse(localStorage.getItem(deckKey(stable)) ?? '[]')
+    if (Array.isArray(stored)) {
+      const seen = new Set<string>()
+      deck = stored.filter((code): code is string => {
+        if (typeof code !== 'string' || !validCodes.has(code) || seen.has(code)) return false
+        seen.add(code)
+        return true
+      })
+    }
+  } catch {
+    deck = []
+  }
+
+  const selectedCodes: string[] = []
+  while (selectedCodes.length < count) {
+    if (deck.length === 0) {
+      const alreadySelected = new Set(selectedCodes)
+      const freshDeck = shuffle([...validCodes])
+      deck = [
+        ...freshDeck.filter((code) => !alreadySelected.has(code)),
+        ...freshDeck.filter((code) => alreadySelected.has(code)),
+      ]
+    }
+
+    const code = deck.shift()
+    if (code && !selectedCodes.includes(code)) selectedCodes.push(code)
+  }
+
+  localStorage.setItem(deckKey(stable), JSON.stringify(deck))
+  return selectedCodes.map((code) => byCode.get(code)!)
+}
 
 const readBest = (stable: StableKey, count: number): BestRecord | null => {
   try {
@@ -161,7 +203,9 @@ function Setup({
   setSoundOn,
 }: SetupProps) {
   const stable = stables.find((item) => item.key === stableKey)!
-  const previewHorses = horseData[stableKey].slice(0, 4)
+  const allStableHorses = horseData[stableKey]
+  const photoBankCount = allStableHorses.filter((horse) => horse.hasPhoto).length
+  const previewHorses = allStableHorses.filter((horse) => horse.hasPhoto).slice(0, 4)
   const best = readBest(stableKey, questionCount)
 
   return (
@@ -187,7 +231,7 @@ function Setup({
                     key={item.key}
                   >
                     <strong>{item.label}</strong>
-                    <small>{item.title}</small>
+                    <small>{item.title} · {horseData[item.key].length} 匹</small>
                   </button>
                 ))}
               </div>
@@ -233,7 +277,7 @@ function Setup({
               <span>焦點馬房</span>
               <h2>{stable.label}</h2>
             </div>
-            <p>{stable.description}</p>
+            <p>{stable.description}<b>{photoBankCount} 匹相片題庫<br />{allStableHorses.length} 匹完整名冊</b></p>
           </div>
           <div className="track-curve" aria-hidden="true"><i /><i /><i /></div>
           <ol className="horse-preview-list">
@@ -245,7 +289,7 @@ function Setup({
                   <strong>{horse.name}</strong>
                   <span>{horse.code}</span>
                 </div>
-                <b>{horse.rating}<small>評分</small></b>
+                <b>{horse.rating ?? '—'}<small>{horse.rating === null ? '未評' : '評分'}</small></b>
               </li>
             ))}
           </ol>
@@ -378,7 +422,7 @@ function Game({
                     <span className="option-letter">{optionLetters[index]}</span>
                     <span className="option-copy">
                       <strong>{horse.name}</strong>
-                      <small>{answered && isCorrect ? `${horse.code} · 評分 ${horse.rating}` : '馬名選項'}</small>
+                      <small>{answered && isCorrect ? `${horse.code} · ${displayRating(horse.rating)}` : '馬名選項'}</small>
                     </span>
                     {answered && isCorrect && <Check className="answer-mark" size={21} />}
                     {answered && isSelected && !isCorrect && <X className="answer-mark" size={21} />}
@@ -394,7 +438,7 @@ function Game({
                   <img src={horseSilk(question.horse.code)} alt="" />
                   <div>
                     <strong>{wasCorrect ? '好眼光！答啱喇。' : `差少少！答案係「${question.horse.name}」。`}</strong>
-                    <small>{question.horse.code} · 現時評分 {question.horse.rating} · 即將進入下一題</small>
+                    <small>{question.horse.code} · ${displayRating(question.horse.rating)} · 即將進入下一題</small>
                   </div>
                 </>
               ) : (
@@ -485,7 +529,7 @@ function Result({
                   <span>{String(index + 1).padStart(2, '0')}</span>
                   <HorseImage horse={horse} />
                   <div><strong>{horse.name}</strong><small>{horse.code}</small></div>
-                  <b>{horse.rating}<small>評分</small></b>
+                  <b>{horse.rating ?? '—'}<small>{horse.rating === null ? '未評' : '評分'}</small></b>
                 </li>
               ))}
             </ol>
@@ -524,7 +568,8 @@ export default function App() {
   const buildRound = () => {
     clearNextQuestionTimer()
     const allHorses = horseData[stableKey]
-    const horses = shuffle(allHorses).slice(0, questionCount)
+    const questionBank = allHorses.filter((horse) => horse.hasPhoto)
+    const horses = drawWithoutRepeats(stableKey, questionBank, questionCount)
     const nextQuestions = horses.map((horse) => {
       const distractors = shuffle(allHorses.filter((item) => item.code !== horse.code)).slice(0, 3)
       return { horse, options: shuffle([horse, ...distractors]) }
