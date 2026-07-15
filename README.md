@@ -1,6 +1,6 @@
 # 香港馬名記憶賽
 
-A responsive memory game for learning active Hong Kong racehorses. Match each horse portrait with its Traditional Chinese name card across two-, three-, and four-character horse-name stables.
+A responsive four-choice recognition game for learning active Hong Kong racehorses. Study one horse portrait, then select its correct Traditional Chinese name from four options across two-, three-, and four-character horse-name stables.
 
 ## Run locally
 

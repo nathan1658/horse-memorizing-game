@@ -1,34 +1,40 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
   Check,
   ExternalLink,
   Flag,
-  Gauge,
+  Flame,
   RotateCcw,
   Sparkles,
   Timer,
   Trophy,
   Volume2,
   VolumeX,
+  X,
 } from 'lucide-react'
 import { horseData, horsePhoto, horseSilk, stables, type Horse, type StableKey } from './data'
 
 type Phase = 'setup' | 'playing' | 'result'
-type CardKind = 'photo' | 'name'
 
-type GameCard = {
-  uid: string
+type Question = {
   horse: Horse
-  kind: CardKind
+  options: Horse[]
+}
+
+type BestRecord = {
+  correct: number
+  time: number
 }
 
 const difficulties = [
-  { pairs: 6, label: '輕鬆跑', note: '6 對' },
-  { pairs: 8, label: '標準賽', note: '8 對' },
-  { pairs: 10, label: '冠軍賽', note: '10 對' },
+  { count: 6, label: '輕鬆跑', note: '6 題' },
+  { count: 8, label: '標準賽', note: '8 題' },
+  { count: 10, label: '冠軍賽', note: '10 題' },
 ] as const
+
+const optionLetters = ['A', 'B', 'C', 'D']
 
 const shuffle = <T,>(items: T[]): T[] => {
   const copy = [...items]
@@ -44,7 +50,19 @@ const formatTime = (seconds: number) => {
   return `${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
 }
 
-const bestKey = (stable: StableKey, pairs: number) => `horse-memory-best-${stable}-${pairs}`
+const bestKey = (stable: StableKey, count: number) => `horse-quiz-best-${stable}-${count}`
+
+const readBest = (stable: StableKey, count: number): BestRecord | null => {
+  try {
+    const stored = localStorage.getItem(bestKey(stable, count))
+    if (!stored) return null
+    const parsed = JSON.parse(stored) as BestRecord
+    if (typeof parsed.correct !== 'number' || typeof parsed.time !== 'number') return null
+    return parsed
+  } catch {
+    return null
+  }
+}
 
 function BrandMark() {
   return (
@@ -87,12 +105,26 @@ function Header({ soundOn, setSoundOn, compact = false }: HeaderProps) {
   )
 }
 
-function HorseImage({ horse, className = '' }: { horse: Horse; className?: string }) {
+function HorseImage({
+  horse,
+  className = '',
+  hideName = false,
+}: {
+  horse: Horse
+  className?: string
+  hideName?: boolean
+}) {
   const [failed, setFailed] = useState(false)
+
+  useEffect(() => setFailed(false), [horse.code])
 
   if (failed) {
     return (
-      <div className={`horse-image-fallback ${className}`} role="img" aria-label={`${horse.name}相片暫未提供`}>
+      <div
+        className={`horse-image-fallback ${className}`}
+        role="img"
+        aria-label={hideName ? '待辨認馬匹相片暫未提供' : `${horse.name}相片暫未提供`}
+      >
         <span>馬</span>
         <small>{horse.code}</small>
       </div>
@@ -103,7 +135,7 @@ function HorseImage({ horse, className = '' }: { horse: Horse; className?: strin
     <img
       className={className}
       src={horsePhoto(horse.code)}
-      alt={`${horse.name}馬匹相片`}
+      alt={hideName ? '待辨認馬匹相片' : `${horse.name}馬匹相片`}
       onError={() => setFailed(true)}
     />
   )
@@ -112,8 +144,8 @@ function HorseImage({ horse, className = '' }: { horse: Horse; className?: strin
 type SetupProps = {
   stableKey: StableKey
   setStableKey: (key: StableKey) => void
-  pairCount: number
-  setPairCount: (count: number) => void
+  questionCount: number
+  setQuestionCount: (count: number) => void
   onStart: () => void
   soundOn: boolean
   setSoundOn: (next: boolean) => void
@@ -122,25 +154,25 @@ type SetupProps = {
 function Setup({
   stableKey,
   setStableKey,
-  pairCount,
-  setPairCount,
+  questionCount,
+  setQuestionCount,
   onStart,
   soundOn,
   setSoundOn,
 }: SetupProps) {
   const stable = stables.find((item) => item.key === stableKey)!
   const previewHorses = horseData[stableKey].slice(0, 4)
-  const best = Number(localStorage.getItem(bestKey(stableKey, pairCount))) || 0
+  const best = readBest(stableKey, questionCount)
 
   return (
     <div className="site-shell setup-shell">
       <Header soundOn={soundOn} setSoundOn={setSoundOn} />
       <main className="setup-main">
         <section className="intro-panel">
-          <p className="eyebrow"><Flag size={15} /> 今場目標：認出每一匹</p>
+          <p className="eyebrow"><Flag size={15} /> 今場目標：睇相認馬</p>
           <h1>眼熟，<br /><em>先係真馬迷。</em></h1>
           <p className="intro-copy">
-            翻開馬匹相片，再找出對應馬名。由兩字短名到四字名駒，逐場操熟你的馬房記憶。
+            睇清楚馬匹相片，再從四個馬名中揀出正確答案。由兩字短名到四字名駒，逐場操熟你的馬房眼界。
           </p>
 
           <div className="setup-controls">
@@ -167,9 +199,9 @@ function Setup({
                 {difficulties.map((difficulty) => (
                   <button
                     type="button"
-                    className={pairCount === difficulty.pairs ? 'is-selected' : ''}
-                    onClick={() => setPairCount(difficulty.pairs)}
-                    key={difficulty.pairs}
+                    className={questionCount === difficulty.count ? 'is-selected' : ''}
+                    onClick={() => setQuestionCount(difficulty.count)}
+                    key={difficulty.count}
                   >
                     <span className="radio-dot" />
                     <strong>{difficulty.label}</strong>
@@ -186,7 +218,11 @@ function Setup({
             </button>
             <div className="best-note">
               <Trophy size={17} />
-              <span>{best ? `最佳時間 ${formatTime(best)}` : '完成首場，寫下紀錄'}</span>
+              <span>
+                {best
+                  ? `最佳 ${best.correct}/${questionCount} · ${formatTime(best.time)}`
+                  : '完成首場，寫下紀錄'}
+              </span>
             </div>
           </div>
         </section>
@@ -229,35 +265,40 @@ function Setup({
 
 type GameProps = {
   stableKey: StableKey
-  pairCount: number
-  cards: GameCard[]
-  flipped: string[]
-  matched: string[]
-  moves: number
+  questions: Question[]
+  currentIndex: number
+  selectedCode: string | null
+  correctCount: number
+  streak: number
   elapsed: number
   soundOn: boolean
   setSoundOn: (next: boolean) => void
-  onFlip: (card: GameCard) => void
+  onAnswer: (horse: Horse) => void
   onBack: () => void
   onRestart: () => void
 }
 
 function Game({
   stableKey,
-  pairCount,
-  cards,
-  flipped,
-  matched,
-  moves,
+  questions,
+  currentIndex,
+  selectedCode,
+  correctCount,
+  streak,
   elapsed,
   soundOn,
   setSoundOn,
-  onFlip,
+  onAnswer,
   onBack,
   onRestart,
 }: GameProps) {
   const stable = stables.find((item) => item.key === stableKey)!
-  const matchedCount = matched.length
+  const question = questions[currentIndex]
+  if (!question) return null
+
+  const answered = selectedCode !== null
+  const wasCorrect = selectedCode === question.horse.code
+  const progress = (currentIndex + (answered ? 1 : 0)) / questions.length
 
   return (
     <div className="site-shell game-shell">
@@ -268,76 +309,103 @@ function Game({
             <ArrowLeft size={17} /> 揀馬房
           </button>
           <div className="race-progress-copy">
-            <span>{stable.label} · {pairCount} 對挑戰</span>
-            <strong>{matchedCount === pairCount ? '全數認出' : `尋找第 ${matchedCount + 1} 對`}</strong>
+            <span>{stable.label} · 四選一挑戰</span>
+            <strong>第 {currentIndex + 1} / {questions.length} 題</strong>
           </div>
-          <button className="icon-button" type="button" onClick={onRestart} aria-label="重新洗牌" title="重新洗牌">
+          <button className="icon-button" type="button" onClick={onRestart} aria-label="重新開始" title="重新開始">
             <RotateCcw size={18} />
           </button>
         </div>
 
         <div className="game-status">
-          <div className="progress-track" aria-label={`已配對 ${matchedCount} 對，共 ${pairCount} 對`}>
-            <i style={{ transform: `scaleX(${matchedCount / pairCount})` }} />
+          <div className="progress-track" aria-label={`已完成 ${currentIndex + (answered ? 1 : 0)} 題，共 ${questions.length} 題`}>
+            <i style={{ transform: `scaleX(${progress})` }} />
           </div>
           <div className="stat-strip">
-            <span><Check size={16} /><b>{matchedCount}</b> / {pairCount} 對</span>
-            <span><Gauge size={16} /><b>{moves}</b> 步</span>
+            <span><Check size={16} /><b>{correctCount}</b> 答中</span>
+            <span><Flame size={16} /><b>{streak}</b> 連中</span>
             <span><Timer size={16} /><b>{formatTime(elapsed)}</b></span>
           </div>
         </div>
 
-        <section
-          className={`memory-grid grid-${pairCount}`}
-          aria-label="馬名記憶卡牌"
-          style={{ '--desktop-columns': pairCount === 10 ? 5 : 4 } as React.CSSProperties}
-        >
-          {cards.map((card, index) => {
-            const isFlipped = flipped.includes(card.uid) || matched.includes(card.horse.code)
-            const isMatched = matched.includes(card.horse.code)
-            return (
-              <button
-                type="button"
-                className={`memory-card ${isFlipped ? 'is-flipped' : ''} ${isMatched ? 'is-matched' : ''}`}
-                key={card.uid}
-                onClick={() => onFlip(card)}
-                disabled={isMatched}
-                aria-label={isFlipped ? `${card.horse.name}${card.kind === 'photo' ? '相片卡' : '馬名卡'}` : `第 ${index + 1} 張未翻開卡牌`}
-                aria-pressed={isFlipped}
-              >
-                <span className="card-inner">
-                  <span className="card-face card-back">
-                    <span className="card-back-top">HK</span>
-                    <span className="card-number">{String(index + 1).padStart(2, '0')}</span>
-                    <span className="card-back-bottom">馬名記憶賽</span>
-                  </span>
-                  <span className={`card-face card-front card-front--${card.kind}`}>
-                    {card.kind === 'photo' ? (
-                      <>
-                        <HorseImage horse={card.horse} />
-                        <span className="photo-caption">
-                          <small>PHOTO</small>
-                          <b>{card.horse.code}</b>
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="silk-wrap">
-                          <img src={horseSilk(card.horse.code)} alt="" />
-                          <small>{card.horse.code}</small>
-                        </span>
-                        <strong>{card.horse.name}</strong>
-                        <span className="rating-line"><b>{card.horse.rating}</b> 現時評分</span>
-                      </>
-                    )}
-                    {isMatched && <span className="match-stamp"><Check size={15} /> 配對</span>}
-                  </span>
-                </span>
-              </button>
-            )
-          })}
+        <section className="quiz-stage" key={question.horse.code} aria-label={`第 ${currentIndex + 1} 題`}>
+          <article className="horse-spotlight">
+            <div className="spotlight-meta">
+              <span>HORSE PHOTO · 馬匹相片</span>
+              <b>Q{String(currentIndex + 1).padStart(2, '0')}</b>
+            </div>
+            <div className="spotlight-photo">
+              <HorseImage horse={question.horse} hideName />
+              <span className="photo-question-mark" aria-hidden="true">?</span>
+              <div className="photo-rail" aria-hidden="true"><i /><i /><i /></div>
+            </div>
+            <div className="spotlight-prompt">
+              <small>睇相認馬</small>
+              <strong>呢匹馬叫咩名？</strong>
+            </div>
+          </article>
+
+          <div className="answer-panel">
+            <div className="answer-panel-heading">
+              <div>
+                <span>CHOOSE ONE</span>
+                <h2>四選一</h2>
+              </div>
+              <p>揀出相片中馬匹的正確中文名</p>
+            </div>
+
+            <div className="answer-grid" role="group" aria-label="四個馬名選項">
+              {question.options.map((horse, index) => {
+                const isCorrect = horse.code === question.horse.code
+                const isSelected = horse.code === selectedCode
+                const answerClass = answered
+                  ? isCorrect
+                    ? 'is-correct'
+                    : isSelected
+                      ? 'is-wrong'
+                      : 'is-dimmed'
+                  : ''
+
+                return (
+                  <button
+                    type="button"
+                    className={`answer-option ${answerClass}`}
+                    key={horse.code}
+                    onClick={() => onAnswer(horse)}
+                    disabled={answered}
+                    aria-pressed={isSelected}
+                  >
+                    <span className="option-letter">{optionLetters[index]}</span>
+                    <span className="option-copy">
+                      <strong>{horse.name}</strong>
+                      <small>{answered && isCorrect ? `${horse.code} · 評分 ${horse.rating}` : '馬名選項'}</small>
+                    </span>
+                    {answered && isCorrect && <Check className="answer-mark" size={21} />}
+                    {answered && isSelected && !isCorrect && <X className="answer-mark" size={21} />}
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className={`answer-feedback ${answered ? (wasCorrect ? 'is-correct' : 'is-wrong') : ''}`} aria-live="polite">
+              {answered ? (
+                <>
+                  <span className="feedback-icon">{wasCorrect ? <Check size={22} /> : <X size={22} />}</span>
+                  <img src={horseSilk(question.horse.code)} alt="" />
+                  <div>
+                    <strong>{wasCorrect ? '好眼光！答啱喇。' : `差少少！答案係「${question.horse.name}」。`}</strong>
+                    <small>{question.horse.code} · 現時評分 {question.horse.rating} · 即將進入下一題</small>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Volume2 size={17} />
+                  <span>答題後會讀出正確馬名</span>
+                </>
+              )}
+            </div>
+          </div>
         </section>
-        <p className="game-tip"><Volume2 size={15} /> 翻開馬名卡會讀出馬名；相片卡與馬名卡各一張。</p>
       </main>
     </div>
   )
@@ -346,9 +414,10 @@ function Game({
 type ResultProps = {
   horses: Horse[]
   stableKey: StableKey
-  pairCount: number
+  questionCount: number
+  correctCount: number
+  bestStreak: number
   elapsed: number
-  moves: number
   isBest: boolean
   soundOn: boolean
   setSoundOn: (next: boolean) => void
@@ -359,9 +428,10 @@ type ResultProps = {
 function Result({
   horses,
   stableKey,
-  pairCount,
+  questionCount,
+  correctCount,
+  bestStreak,
   elapsed,
-  moves,
   isBest,
   soundOn,
   setSoundOn,
@@ -369,7 +439,8 @@ function Result({
   onSetup,
 }: ResultProps) {
   const stable = stables.find((item) => item.key === stableKey)!
-  const accuracy = Math.round((pairCount / Math.max(moves, pairCount)) * 100)
+  const accuracy = Math.round((correctCount / questionCount) * 100)
+  const perfect = correctCount === questionCount
 
   return (
     <div className="site-shell result-shell">
@@ -378,8 +449,8 @@ function Result({
         <section className="finish-banner">
           <div className="finish-badge"><Trophy size={25} /></div>
           <p className="eyebrow"><Sparkles size={15} /> 衝線完成</p>
-          <h1>全數認出，<em>好眼光！</em></h1>
-          <p>{stable.label} · {pairCount} 對挑戰</p>
+          <h1>{perfect ? '全部答中，' : `答中 ${correctCount} 匹，`}<em>{perfect ? '好眼光！' : '再跑一場！'}</em></h1>
+          <p>{stable.label} · {questionCount} 題四選一挑戰</p>
           {isBest && <span className="new-record">NEW RECORD · 新紀錄</span>}
           <div className="finish-lines" aria-hidden="true"><i /><i /><i /><i /></div>
         </section>
@@ -388,8 +459,9 @@ function Result({
           <div className="result-summary">
             <p>今場賽果</p>
             <dl>
+              <div><dt>答中</dt><dd>{correctCount} / {questionCount}</dd></div>
               <div><dt>時間</dt><dd>{formatTime(elapsed)}</dd></div>
-              <div><dt>步數</dt><dd>{moves}</dd></div>
+              <div><dt>最高連中</dt><dd>{bestStreak}</dd></div>
               <div><dt>命中率</dt><dd>{accuracy}%</dd></div>
             </dl>
             <div className="result-actions">
@@ -404,7 +476,7 @@ function Result({
 
           <div className="learned-roster">
             <div className="roster-heading">
-              <span>今場已認出</span>
+              <span>今場出題馬匹</span>
               <strong>{horses.length} 匹</strong>
             </div>
             <ol>
@@ -427,33 +499,48 @@ function Result({
 export default function App() {
   const [phase, setPhase] = useState<Phase>('setup')
   const [stableKey, setStableKey] = useState<StableKey>('four')
-  const [pairCount, setPairCount] = useState(8)
+  const [questionCount, setQuestionCount] = useState(8)
   const [soundOn, setSoundOn] = useState(true)
   const [selectedHorses, setSelectedHorses] = useState<Horse[]>([])
-  const [cards, setCards] = useState<GameCard[]>([])
-  const [flipped, setFlipped] = useState<string[]>([])
-  const [matched, setMatched] = useState<string[]>([])
-  const [moves, setMoves] = useState(0)
+  const [questions, setQuestions] = useState<Question[]>([])
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [selectedCode, setSelectedCode] = useState<string | null>(null)
+  const [correctCount, setCorrectCount] = useState(0)
+  const [streak, setStreak] = useState(0)
+  const [bestStreak, setBestStreak] = useState(0)
   const [elapsed, setElapsed] = useState(0)
+  const [finalTime, setFinalTime] = useState(0)
+  const [finalCorrect, setFinalCorrect] = useState(0)
   const [isBest, setIsBest] = useState(false)
-  const lockRef = useRef(false)
+  const nextQuestionTimer = useRef<number | null>(null)
+
+  const clearNextQuestionTimer = () => {
+    if (nextQuestionTimer.current !== null) {
+      window.clearTimeout(nextQuestionTimer.current)
+      nextQuestionTimer.current = null
+    }
+  }
 
   const buildRound = () => {
-    const horses = shuffle(horseData[stableKey]).slice(0, pairCount)
-    const nextCards = shuffle(
-      horses.flatMap((horse) => [
-        { uid: `${horse.code}-photo`, horse, kind: 'photo' as const },
-        { uid: `${horse.code}-name`, horse, kind: 'name' as const },
-      ]),
-    )
+    clearNextQuestionTimer()
+    const allHorses = horseData[stableKey]
+    const horses = shuffle(allHorses).slice(0, questionCount)
+    const nextQuestions = horses.map((horse) => {
+      const distractors = shuffle(allHorses.filter((item) => item.code !== horse.code)).slice(0, 3)
+      return { horse, options: shuffle([horse, ...distractors]) }
+    })
+
     setSelectedHorses(horses)
-    setCards(nextCards)
-    setFlipped([])
-    setMatched([])
-    setMoves(0)
+    setQuestions(nextQuestions)
+    setCurrentIndex(0)
+    setSelectedCode(null)
+    setCorrectCount(0)
+    setStreak(0)
+    setBestStreak(0)
     setElapsed(0)
+    setFinalTime(0)
+    setFinalCorrect(0)
     setIsBest(false)
-    lockRef.current = false
     setPhase('playing')
   }
 
@@ -463,15 +550,7 @@ export default function App() {
     return () => window.clearInterval(timer)
   }, [phase])
 
-  useEffect(() => {
-    if (phase !== 'playing' || matched.length !== pairCount) return
-    const storedBest = Number(localStorage.getItem(bestKey(stableKey, pairCount))) || 0
-    const nextIsBest = storedBest === 0 || elapsed < storedBest
-    if (nextIsBest) localStorage.setItem(bestKey(stableKey, pairCount), String(elapsed))
-    setIsBest(nextIsBest)
-    const finishDelay = window.setTimeout(() => setPhase('result'), 700)
-    return () => window.clearTimeout(finishDelay)
-  }, [matched, pairCount, phase, stableKey, elapsed])
+  useEffect(() => () => clearNextQuestionTimer(), [])
 
   const speakName = (name: string) => {
     if (!soundOn || !('speechSynthesis' in window)) return
@@ -482,75 +561,104 @@ export default function App() {
     window.speechSynthesis.speak(utterance)
   }
 
-  const handleFlip = (card: GameCard) => {
-    if (lockRef.current || flipped.includes(card.uid) || matched.includes(card.horse.code)) return
-    if (card.kind === 'name') speakName(card.horse.name)
+  const saveResult = (score: number, time: number) => {
+    const currentBest = readBest(stableKey, questionCount)
+    const nextIsBest = !currentBest
+      || score > currentBest.correct
+      || (score === currentBest.correct && time < currentBest.time)
 
-    const nextFlipped = [...flipped, card.uid]
-    setFlipped(nextFlipped)
-    if (nextFlipped.length < 2) return
-
-    setMoves((value) => value + 1)
-    lockRef.current = true
-    const [firstUid, secondUid] = nextFlipped
-    const first = cards.find((item) => item.uid === firstUid)!
-    const second = cards.find((item) => item.uid === secondUid)!
-    const isMatch = first.horse.code === second.horse.code && first.kind !== second.kind
-
-    window.setTimeout(() => {
-      if (isMatch) setMatched((items) => [...items, first.horse.code])
-      setFlipped([])
-      lockRef.current = false
-    }, isMatch ? 480 : 900)
+    if (nextIsBest) {
+      localStorage.setItem(bestKey(stableKey, questionCount), JSON.stringify({ correct: score, time }))
+    }
+    setFinalCorrect(score)
+    setFinalTime(time)
+    setIsBest(nextIsBest)
   }
 
-  const screen = useMemo(() => {
-    if (phase === 'playing') {
-      return (
-        <Game
-          stableKey={stableKey}
-          pairCount={pairCount}
-          cards={cards}
-          flipped={flipped}
-          matched={matched}
-          moves={moves}
-          elapsed={elapsed}
-          soundOn={soundOn}
-          setSoundOn={setSoundOn}
-          onFlip={handleFlip}
-          onBack={() => setPhase('setup')}
-          onRestart={buildRound}
-        />
-      )
+  const handleAnswer = (answer: Horse) => {
+    if (selectedCode !== null) return
+    const question = questions[currentIndex]
+    if (!question) return
+
+    const correct = answer.code === question.horse.code
+    const nextCorrectCount = correctCount + (correct ? 1 : 0)
+    setSelectedCode(answer.code)
+    speakName(question.horse.name)
+
+    if (correct) {
+      const nextStreak = streak + 1
+      setCorrectCount(nextCorrectCount)
+      setStreak(nextStreak)
+      setBestStreak((value) => Math.max(value, nextStreak))
+    } else {
+      setStreak(0)
     }
-    if (phase === 'result') {
-      return (
-        <Result
-          horses={selectedHorses}
-          stableKey={stableKey}
-          pairCount={pairCount}
-          elapsed={elapsed}
-          moves={moves}
-          isBest={isBest}
-          soundOn={soundOn}
-          setSoundOn={setSoundOn}
-          onReplay={buildRound}
-          onSetup={() => setPhase('setup')}
-        />
-      )
-    }
+
+    const isLastQuestion = currentIndex === questions.length - 1
+    if (isLastQuestion) saveResult(nextCorrectCount, elapsed)
+
+    nextQuestionTimer.current = window.setTimeout(() => {
+      if (isLastQuestion) {
+        setPhase('result')
+      } else {
+        setCurrentIndex((value) => value + 1)
+        setSelectedCode(null)
+      }
+      nextQuestionTimer.current = null
+    }, 1250)
+  }
+
+  const returnToSetup = () => {
+    clearNextQuestionTimer()
+    setPhase('setup')
+  }
+
+  if (phase === 'playing') {
     return (
-      <Setup
+      <Game
         stableKey={stableKey}
-        setStableKey={setStableKey}
-        pairCount={pairCount}
-        setPairCount={setPairCount}
-        onStart={buildRound}
+        questions={questions}
+        currentIndex={currentIndex}
+        selectedCode={selectedCode}
+        correctCount={correctCount}
+        streak={streak}
+        elapsed={elapsed}
         soundOn={soundOn}
         setSoundOn={setSoundOn}
+        onAnswer={handleAnswer}
+        onBack={returnToSetup}
+        onRestart={buildRound}
       />
     )
-  }, [phase, stableKey, pairCount, cards, flipped, matched, moves, elapsed, soundOn, selectedHorses, isBest])
+  }
 
-  return screen
+  if (phase === 'result') {
+    return (
+      <Result
+        horses={selectedHorses}
+        stableKey={stableKey}
+        questionCount={questionCount}
+        correctCount={finalCorrect}
+        bestStreak={bestStreak}
+        elapsed={finalTime}
+        isBest={isBest}
+        soundOn={soundOn}
+        setSoundOn={setSoundOn}
+        onReplay={buildRound}
+        onSetup={returnToSetup}
+      />
+    )
+  }
+
+  return (
+    <Setup
+      stableKey={stableKey}
+      setStableKey={setStableKey}
+      questionCount={questionCount}
+      setQuestionCount={setQuestionCount}
+      onStart={buildRound}
+      soundOn={soundOn}
+      setSoundOn={setSoundOn}
+    />
+  )
 }
