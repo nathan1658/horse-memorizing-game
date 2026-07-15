@@ -10,8 +10,6 @@ import {
   Sparkles,
   Timer,
   Trophy,
-  Volume2,
-  VolumeX,
   X,
 } from 'lucide-react'
 import { horseData, horsePhoto, horseSilk, stables, type Horse, type StableKey } from './data'
@@ -115,13 +113,7 @@ function BrandMark() {
   )
 }
 
-type HeaderProps = {
-  soundOn: boolean
-  setSoundOn: (next: boolean) => void
-  compact?: boolean
-}
-
-function Header({ soundOn, setSoundOn, compact = false }: HeaderProps) {
+function Header({ compact = false }: { compact?: boolean }) {
   return (
     <header className={`masthead ${compact ? 'masthead--compact' : ''}`}>
       <div className="brand-lockup">
@@ -133,15 +125,6 @@ function Header({ soundOn, setSoundOn, compact = false }: HeaderProps) {
       </div>
       <div className="masthead-actions">
         <span className="season-label">2025/26 馬季</span>
-        <button
-          className="icon-button"
-          type="button"
-          onClick={() => setSoundOn(!soundOn)}
-          aria-label={soundOn ? '關閉讀名聲音' : '開啟讀名聲音'}
-          title={soundOn ? '關閉讀名聲音' : '開啟讀名聲音'}
-        >
-          {soundOn ? <Volume2 size={19} /> : <VolumeX size={19} />}
-        </button>
       </div>
     </header>
   )
@@ -189,8 +172,6 @@ type SetupProps = {
   questionCount: number
   setQuestionCount: (count: number) => void
   onStart: () => void
-  soundOn: boolean
-  setSoundOn: (next: boolean) => void
 }
 
 function Setup({
@@ -199,8 +180,6 @@ function Setup({
   questionCount,
   setQuestionCount,
   onStart,
-  soundOn,
-  setSoundOn,
 }: SetupProps) {
   const stable = stables.find((item) => item.key === stableKey)!
   const allStableHorses = horseData[stableKey]
@@ -210,7 +189,7 @@ function Setup({
 
   return (
     <div className="site-shell setup-shell">
-      <Header soundOn={soundOn} setSoundOn={setSoundOn} />
+      <Header />
       <main className="setup-main">
         <section className="intro-panel">
           <p className="eyebrow"><Flag size={15} /> 今場目標：睇相認馬</p>
@@ -315,8 +294,6 @@ type GameProps = {
   correctCount: number
   streak: number
   elapsed: number
-  soundOn: boolean
-  setSoundOn: (next: boolean) => void
   onAnswer: (horse: Horse) => void
   onBack: () => void
   onRestart: () => void
@@ -330,8 +307,6 @@ function Game({
   correctCount,
   streak,
   elapsed,
-  soundOn,
-  setSoundOn,
   onAnswer,
   onBack,
   onRestart,
@@ -346,7 +321,7 @@ function Game({
 
   return (
     <div className="site-shell game-shell">
-      <Header soundOn={soundOn} setSoundOn={setSoundOn} compact />
+      <Header compact />
       <main className="game-main">
         <div className="game-toolbar">
           <button className="text-button" type="button" onClick={onBack}>
@@ -443,8 +418,8 @@ function Game({
                 </>
               ) : (
                 <>
-                  <Volume2 size={17} />
-                  <span>答題後會讀出正確馬名</span>
+                  <Flag size={17} />
+                  <span>揀選答案後會即時顯示正確馬名</span>
                 </>
               )}
             </div>
@@ -463,8 +438,6 @@ type ResultProps = {
   bestStreak: number
   elapsed: number
   isBest: boolean
-  soundOn: boolean
-  setSoundOn: (next: boolean) => void
   onReplay: () => void
   onSetup: () => void
 }
@@ -477,8 +450,6 @@ function Result({
   bestStreak,
   elapsed,
   isBest,
-  soundOn,
-  setSoundOn,
   onReplay,
   onSetup,
 }: ResultProps) {
@@ -488,7 +459,7 @@ function Result({
 
   return (
     <div className="site-shell result-shell">
-      <Header soundOn={soundOn} setSoundOn={setSoundOn} compact />
+      <Header compact />
       <main className="result-main">
         <section className="finish-banner">
           <div className="finish-badge"><Trophy size={25} /></div>
@@ -544,7 +515,6 @@ export default function App() {
   const [phase, setPhase] = useState<Phase>('setup')
   const [stableKey, setStableKey] = useState<StableKey>('four')
   const [questionCount, setQuestionCount] = useState(8)
-  const [soundOn, setSoundOn] = useState(true)
   const [selectedHorses, setSelectedHorses] = useState<Horse[]>([])
   const [questions, setQuestions] = useState<Question[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -597,15 +567,6 @@ export default function App() {
 
   useEffect(() => () => clearNextQuestionTimer(), [])
 
-  const speakName = (name: string) => {
-    if (!soundOn || !('speechSynthesis' in window)) return
-    window.speechSynthesis.cancel()
-    const utterance = new SpeechSynthesisUtterance(name)
-    utterance.lang = 'zh-HK'
-    utterance.rate = 0.82
-    window.speechSynthesis.speak(utterance)
-  }
-
   const saveResult = (score: number, time: number) => {
     const currentBest = readBest(stableKey, questionCount)
     const nextIsBest = !currentBest
@@ -628,7 +589,6 @@ export default function App() {
     const correct = answer.code === question.horse.code
     const nextCorrectCount = correctCount + (correct ? 1 : 0)
     setSelectedCode(answer.code)
-    speakName(question.horse.name)
 
     if (correct) {
       const nextStreak = streak + 1
@@ -668,8 +628,6 @@ export default function App() {
         correctCount={correctCount}
         streak={streak}
         elapsed={elapsed}
-        soundOn={soundOn}
-        setSoundOn={setSoundOn}
         onAnswer={handleAnswer}
         onBack={returnToSetup}
         onRestart={buildRound}
@@ -687,8 +645,6 @@ export default function App() {
         bestStreak={bestStreak}
         elapsed={finalTime}
         isBest={isBest}
-        soundOn={soundOn}
-        setSoundOn={setSoundOn}
         onReplay={buildRound}
         onSetup={returnToSetup}
       />
@@ -702,8 +658,6 @@ export default function App() {
       questionCount={questionCount}
       setQuestionCount={setQuestionCount}
       onStart={buildRound}
-      soundOn={soundOn}
-      setSoundOn={setSoundOn}
     />
   )
 }
